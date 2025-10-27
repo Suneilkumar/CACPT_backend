@@ -1,53 +1,144 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import sqlite3
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import func, Index
 import os
+import json
 
+# -------------------------------------------------------
+# App setup
+# -------------------------------------------------------
 app = Flask(__name__)
-CORS(app)  # allow React frontend to call this API
+CORS(app)
 
-DB_PATH = "data.db"
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(BASE_DIR, 'questions.db')}"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# --- Database setup ---
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
+db = SQLAlchemy(app)
 
-init_db()
+# -------------------------------------------------------
+# Model
+# -------------------------------------------------------
+class Question(db.Model):
+    __tablename__ = "question"
+    __table_args__ = (Index("ix_question_chapter", "chapter"),)
 
-# --- Routes ---
+    id = db.Column(db.Integer, primary_key=True)
+    difficulty = db.Column(db.String(50))
+    subject = db.Column(db.String(100))
+    chapter = db.Column(db.String(150))
+    hint = db.Column(db.Text)
+    explanation = db.Column(db.Text)
+    featured = db.Column(db.Text)     # JSON list (stringified)
+    hot = db.Column(db.Boolean, default=False)
+    question_text = db.Column(db.Text, nullable=False)
+    options = db.Column(db.Text, nullable=False)  # JSON list (stringified)
+    answer = db.Column(db.Integer)
+    topic = db.Column(db.String(150))
+    normaltime = db.Column(db.String(50))
+    giventime = db.Column(db.String(50))
+
+    def serialize(self):
+        return {
+            "id": self.id,
+            "difficulty": self.difficulty,
+            "subject": self.subject,
+            "chapter": self.chapter,
+            "hint": self.hint,
+            "explanation": self.explanation,
+            "featured": json.loads(self.featured or "[]"),
+            "hot": self.hot,
+            "question_text": self.question_text,
+            "options": json.loads(self.options or "[]"),
+            "answer": self.answer,
+            "topic": self.topic,
+            "normaltime": self.normaltime,
+            "giventime": self.giventime,
+        }
+
+# -------------------------------------------------------
+# Routes
+# -------------------------------------------------------
+
 @app.route("/api/hello")
 def hello():
-    return jsonify(message="Hello from Flask and Taweja!")
+    return jsonify(message="Hello from Flask + SQLite (Question DB)")
 
-@app.route("/api/users", methods=["POST"])
-def add_user():
+# Add a new question
+@app.route("/api/questions", methods=["POST"])
+def add_question():
     data = request.get_json()
-    name, email = data.get("name"), data.get("email")
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("INSERT INTO users (name, email) VALUES (?, ?)", (name, email))
-    conn.commit()
-    conn.close()
-    return jsonify(success=True, message=f"User {name} added successfully")
+    q = Question(
+        difficulty=data.get("difficulty"),
+        subject=data.get("subject"),
+        chapter=data.get("chapter"),
+        hint=data.get("hint"),
+        explanation=data.get("explanation"),
+        featured=json.dumps(data.get("featured", [])),
+        hot=data.get("hot", False),
+        question_text=data.get("question_text"),
+        options=json.dumps(data.get("options", [])),
+        answer=data.get("answer"),
+        topic=data.get("topic"),
+        normaltime=data.get("normaltime"),
+        giventime=data.get("giventime"),
+        appwrite_id=data.get("$id"),
+    )
+    db.session.add(q)
+    db.session.commit()
+    return jsonify(q.serialize()), 201
 
-@app.route("/api/users", methods=["GET"])
-def get_users():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("SELECT id, name, email FROM users")
-    users = [{"id": r[0], "name": r[1], "email": r[2]} for r in cur.fetchall()]
-    conn.close()
-    return jsonify(users)
+# Get all questions
+@app.route("/api/questions", methods=["GET"])
+def get_questions():
+    questions = Question.query.all()
+    return jsonify([q.serialize() for q in questions])
 
+# Get one question by ID
+@app.route("/api/questions/<int:id>", methods=["GET"])
+def get_question(id):
+    q = Question.query.get_or_404(id)
+    return jsonify(q.serialize())
+
+# Search questions by chapter / subject / difficulty
+@app.route("/api/questions/search", methods=["GET"])
+def search_questions():
+    chapter_q = request.args.get("chapter", type=str)
+    subject_q = request.args.get("subject", type=str)
+    difficulty_q = request.args.get("difficulty", type=str)
+    page = request.args.get("page", default=1, type=int)
+    per_page = request.args.get("per_page", default=50, type=int)
+
+    query = Question.query
+
+    # case-insensitive filtering
+    if chapter_q:
+        pattern = f"%{chapter_q}%"
+        query = query.filter(func.lower(Question.chapter).like(func.lower(pattern)))
+
+    if subject_q:
+        pattern = f"%{subject_q}%"
+        query = query.filter(func.lower(Question.subject).like(func.lower(pattern)))
+
+    if difficulty_q:
+        query = query.filter(Question.difficulty == difficulty_q)
+
+    paginated = query.order_by(Question.id).paginate(page=page, per_page=per_page, error_out=False)
+    items = [item.serialize() for item in paginated.items]
+
+    return jsonify({
+        "page": page,
+        "per_page": per_page,
+        "total": paginated.total,
+        "pages": paginated.pages,
+        "items": items
+    })
+
+# -------------------------------------------------------
+# Initialize DB
+# -------------------------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+    with app.app_context():
+        db.create_all()
+    app.run(host="0.0.0.0", port=5000)
