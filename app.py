@@ -27,7 +27,7 @@ init_db()
 # --- Routes ---
 @app.route("/api/hello")
 def hello():
-    return jsonify(message="Hello from Flask and Baweja!")
+    return jsonify(message="Hello from Flask and Taweja!")
 
 @app.route("/api/users", methods=["POST"])
 def add_user():
