@@ -83,11 +83,40 @@ def add_question():
         topic=data.get("topic"),
         normaltime=data.get("normaltime"),
         giventime=data.get("giventime"),
-        appwrite_id=data.get("$id"),
     )
     db.session.add(q)
     db.session.commit()
     return jsonify(q.serialize()), 201
+
+@app.route("/api/questions/bulk", methods=["POST"])
+def bulk_add_questions():
+    data = request.get_json()
+    if not isinstance(data, list):
+        return jsonify(error="Expected a JSON array of questions"), 400
+
+    added, skipped = 0, 0
+    for item in data:
+        q = Question(
+            difficulty=item.get("difficulty"),
+            subject=item.get("subject"),
+            chapter=item.get("chapter"),
+            hint=item.get("hint"),
+            explanation=item.get("explanation"),
+            featured=json.dumps(item.get("featured", [])),
+            hot=item.get("hot", False),
+            question_text=item.get("question_text"),
+            options=json.dumps(item.get("options", [])),
+            answer=item.get("answer"),
+            topic=item.get("topic"),
+            normaltime=item.get("normaltime"),
+            giventime=item.get("giventime"),
+        )
+        db.session.add(q)
+        added += 1
+
+    db.session.commit()
+    return jsonify({"added": added, "skipped": skipped}), 201
+
 
 # Get all questions
 @app.route("/api/questions", methods=["GET"])
@@ -141,4 +170,4 @@ def search_questions():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=8000)
