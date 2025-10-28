@@ -9,7 +9,7 @@ import json
 # App setup
 # -------------------------------------------------------
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": ["https://main.d2fa862e1himfr.amplifyapp.com"]}})
+CORS(app, resources={r"/api/*": {"origins": ["https://sunilbasudeo.com"]}})
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(BASE_DIR, 'questions.db')}"
