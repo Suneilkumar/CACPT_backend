@@ -102,6 +102,8 @@ class QuizResult(db.Model):
 def hello():
     return jsonify(message="Hello from Flask + SQLite (Question DB)")
 
+
+
 # Add a new question
 @app.route("/api/questions", methods=["POST"])
 def add_question():
@@ -233,6 +235,40 @@ def save_quiz_results():
 
     db.session.commit()
     return jsonify({"status": "success", "saved": len(saved)}), 201
+
+@app.route("/api/quiz_results", methods=["GET"])
+def get_all_quiz_results():
+    """
+    Returns all quiz results across all users, ordered by most recent first.
+    Optional query params:
+      - limit (int): number of records to return
+      - subject (str): filter by subject
+      - user (str): filter by user_id or email
+    """
+    limit = request.args.get("limit", type=int)
+    subject_q = request.args.get("subject", type=str)
+    user_q = request.args.get("user", type=str)
+
+    query = QuizResult.query
+
+    if subject_q:
+        query = query.filter(func.lower(QuizResult.meta["subject"].astext) == subject_q.lower())
+
+    if user_q:
+        query = query.filter(
+            (QuizResult.user_id.ilike(f"%{user_q}%")) |
+            (QuizResult.email.ilike(f"%{user_q}%"))
+        )
+
+    query = query.order_by(QuizResult.timestamp.desc())
+
+    if limit:
+        results = query.limit(limit).all()
+    else:
+        results = query.all()
+
+    return jsonify([r.serialize() for r in results])
+
 
 
 # -------------------------------------------------------
