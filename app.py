@@ -236,6 +236,11 @@ def save_quiz_results():
     db.session.commit()
     return jsonify({"status": "success", "saved": len(saved)}), 201
 
+@app.route("/api/quiz_results/<user_id>", methods=["GET"])
+def get_quiz_results(user_id):
+    results = QuizResult.query.filter_by(user_id=user_id).order_by(QuizResult.timestamp.desc()).all()
+    return jsonify([r.serialize() for r in results])
+
 @app.route("/api/quiz_results", methods=["GET"])
 def get_all_quiz_results():
     """
