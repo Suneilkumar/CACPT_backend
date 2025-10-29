@@ -57,6 +57,42 @@ class Question(db.Model):
             "giventime": self.giventime,
         }
 
+class QuizResult(db.Model):
+    __tablename__ = "quiz_results"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(128), nullable=False)
+    email = db.Column(db.String(255))
+    question_id = db.Column(db.String(64))
+    question_text = db.Column(db.Text)
+    submitted_answer_index = db.Column(db.Integer)
+    submitted_answer_text = db.Column(db.Text)
+    correct_answer_index = db.Column(db.Integer)
+    correct_answer_text = db.Column(db.Text)
+    is_correct = db.Column(db.Boolean, default=False)
+    user_action = db.Column(db.String(64))
+    time_taken = db.Column(db.Float)
+    timestamp = db.Column(db.DateTime)
+    meta = db.Column(db.JSON)
+
+    def serialize(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "email": self.email,
+            "question_id": self.question_id,
+            "question_text": self.question_text,
+            "submitted_answer_index": self.submitted_answer_index,
+            "submitted_answer_text": self.submitted_answer_text,
+            "correct_answer_index": self.correct_answer_index,
+            "correct_answer_text": self.correct_answer_text,
+            "is_correct": self.is_correct,
+            "user_action": self.user_action,
+            "time_taken": self.time_taken,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "meta": self.meta,
+        }
+
 # -------------------------------------------------------
 # Routes
 # -------------------------------------------------------
@@ -163,6 +199,40 @@ def search_questions():
         "pages": paginated.pages,
         "items": items
     })
+    
+@app.route("/api/quiz_results", methods=["POST"])
+def save_quiz_results():
+    data = request.get_json()
+    user_id = data.get("user_id")
+    email = data.get("email")
+    results = data.get("results", [])
+
+    if not user_id or not results:
+        return jsonify({"error": "Missing user_id or results"}), 400
+
+    saved = []
+    for r in results:
+        result = QuizResult(
+            user_id=user_id,
+            email=email,
+            question_id=r.get("questionId"),
+            question_text=r.get("questionText"),
+            submitted_answer_index=r.get("submittedAnswerIndex"),
+            submitted_answer_text=r.get("submittedAnswerText"),
+            correct_answer_index=r.get("correctAnswerIndex"),
+            correct_answer_text=r.get("correctAnswerText"),
+            is_correct=r.get("isCorrect", False),
+            user_action=r.get("userAction", "unanswered"),
+            time_taken=r.get("timeTaken"),
+            timestamp=datetime.utcnow(),
+            meta=r.get("meta"),
+        )
+        db.session.add(result)
+        saved.append(result)
+
+    db.session.commit()
+    return jsonify({"status": "success", "saved": len(saved)}), 201
+
 
 # -------------------------------------------------------
 # Initialize DB
