@@ -280,20 +280,24 @@ def leaderboard():
         subject_q = request.args.get("subject", type=str)
         query = QuizResult.query
 
-        # Filter by subject (inside JSON field)
+        # Safe Python-side filtering for SQLite
         if subject_q:
             subject_q_lower = subject_q.lower()
             filtered = []
             for r in results:
                 meta = r.meta
+                # Handle None or stringified JSON safely
                 if isinstance(meta, str):
                     try:
                         meta = json.loads(meta)
                     except Exception:
                         meta = {}
+                elif meta is None:
+                    meta = {}
                 if isinstance(meta, dict) and meta.get("subject", "").lower() == subject_q_lower:
                     filtered.append(r)
             results = filtered
+
 
         # Aggregate stats
         stats = defaultdict(lambda: {"attempts": 0, "correct": 0})
