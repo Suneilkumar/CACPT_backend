@@ -5,6 +5,8 @@ from sqlalchemy import func, Index
 from datetime import datetime
 import os
 import json
+from datetime import datetime, timezone
+import pytz  # pip install pytz
 
 # -------------------------------------------------------
 # App setup
@@ -101,6 +103,17 @@ class QuizResult(db.Model):
 @app.route("/api/hello")
 def hello():
     return jsonify(message="Hello from Flask + SQLite (Question DB)")
+    
+
+def to_local_time(utc_dt, tz_name="Asia/Kolkata"):
+    """Convert UTC datetime to local timezone and return date, time strings."""
+    if not utc_dt:
+        return None, None
+    local_tz = pytz.timezone(tz_name)
+    local_dt = utc_dt.replace(tzinfo=timezone.utc).astimezone(local_tz)
+    date = local_dt.strftime("%Y-%m-%d")
+    time = local_dt.strftime("%H:%M:%S")
+    return date, time
 
 
 
@@ -235,6 +248,186 @@ def save_quiz_results():
 
     db.session.commit()
     return jsonify({"status": "success", "saved": len(saved)}), 201
+    
+from collections import defaultdict
+from sqlalchemy import func
+
+@app.route("/api/leaderboard", methods=["GET"])
+def leaderboard():
+    """
+    Returns top 10 users ranked by accuracy (% correct answers),
+    optionally filtered by subject.
+    Filters: min 3 attempts, min 40% accuracy.
+    Example: /api/leaderboard?subject=Accounting
+    """
+    try:
+        subject_q = request.args.get("subject", type=str)
+
+        # Base query
+        query = QuizResult.query
+
+        # Filter by subject (inside JSON field)
+        if subject_q:
+            query = query.filter(
+                func.lower(QuizResult.meta["subject"].astext) == subject_q.lower()
+            )
+
+        results = query.all()
+
+        # Aggregate user stats
+        stats = defaultdict(lambda: {"attempts": 0, "correct": 0})
+        emails = {}
+
+        for r in results:
+            uid = r.user_id
+            stats[uid]["attempts"] += 1
+            if r.is_correct:
+                stats[uid]["correct"] += 1
+            emails[uid] = r.email or "unknown@example.com"
+
+        # Build leaderboard list
+        leaderboard = []
+        for uid, s in stats.items():
+            total = s["attempts"]
+            correct = s["correct"]
+            accuracy = (correct / total * 100) if total > 0 else 0
+
+            # Apply filters: min 3 attempts and 40% accuracy
+            if total < 3 or accuracy < 40:
+                continue
+
+            leaderboard.append({
+                "userId": uid,
+                "email": emails.get(uid, "unknown@example.com"),
+                "totalAttempts": total,
+                "avgAccuracy": round(accuracy, 1)
+            })
+
+        # Sort and limit
+        leaderboard.sort(key=lambda x: x["avgAccuracy"], reverse=True)
+        top_10 = leaderboard[:10]
+
+        # Response
+        meta_info = (
+            f"Top 10 users for subject '{subject_q}'" if subject_q else "Top 10 users overall"
+        )
+        return jsonify({
+            "meta": meta_info,
+            "subject": subject_q,
+            "leaderboard": top_10,
+            "count": len(leaderboard)
+        })
+
+    except Exception as e:
+        print("❌ Leaderboard generation error:", e)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/quiz_summary", methods=["GET"])
+def quiz_summary():
+    """
+    Returns aggregated quiz results per user, per day, with subjects and chapters.
+    Query params:
+      - user_id (optional)
+      - start_date (optional)
+      - end_date (optional)
+    """
+    user_filter = request.args.get("user_id")
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+
+    query = QuizResult.query
+    if user_filter:
+        query = query.filter(QuizResult.user_id == user_filter)
+
+    results = query.order_by(QuizResult.timestamp).all()
+
+    summary_map = defaultdict(lambda: {
+        "user_id": None,
+        "email": None,
+        "date": None,
+        "last_attempt_time": None,
+        "total_attempts": 0,
+        "total_correct": 0,
+        "total_questions": 0,
+        "total_time": 0.0,
+        "subjects": {}
+    })
+
+    for r in results:
+        date, time = to_local_time(r.timestamp)
+        if not date:
+            continue
+
+        key = f"{r.user_id}_{date}"
+        subj = (r.meta or {}).get("subject", "Unknown Subject")
+        chap = (r.meta or {}).get("chapter", "Unknown Chapter")
+        time_taken = r.time_taken or 0.0
+
+        day = summary_map[key]
+        day["user_id"] = r.user_id
+        day["email"] = r.email
+        day["date"] = date
+        day["last_attempt_time"] = max(time, day.get("last_attempt_time", "00:00:00"))
+        day["total_attempts"] += 1
+        day["total_questions"] += 1
+        day["total_time"] += time_taken
+        if r.is_correct:
+            day["total_correct"] += 1
+
+        # Subject grouping
+        subjects = day["subjects"]
+        if subj not in subjects:
+            subjects[subj] = {
+                "subject": subj,
+                "total_attempts": 0,
+                "total_correct": 0,
+                "total_time": 0.0,
+                "chapters": {}
+            }
+        s = subjects[subj]
+        s["total_attempts"] += 1
+        s["total_time"] += time_taken
+        if r.is_correct:
+            s["total_correct"] += 1
+
+        # Chapter grouping
+        chapters = s["chapters"]
+        if chap not in chapters:
+            chapters[chap] = {
+                "chapter": chap,
+                "attempts": 0,
+                "correct": 0,
+                "total_time": 0.0,
+                "last_attempt_time": time
+            }
+        ch = chapters[chap]
+        ch["attempts"] += 1
+        ch["total_time"] += time_taken
+        if r.is_correct:
+            ch["correct"] += 1
+        if time > ch["last_attempt_time"]:
+            ch["last_attempt_time"] = time
+
+    # Compute accuracy and averages
+    summaries = []
+    for day in summary_map.values():
+        day["accuracy"] = round(day["total_correct"] / day["total_questions"] * 100, 1)
+        day["avg_time_sec"] = round(day["total_time"] / day["total_questions"], 2)
+
+        for s in day["subjects"].values():
+            s["accuracy"] = round(s["total_correct"] / s["total_attempts"] * 100, 1)
+            s["avg_time_sec"] = round(s["total_time"] / s["total_attempts"], 2)
+
+            for ch in s["chapters"].values():
+                ch["accuracy"] = round(ch["correct"] / ch["attempts"] * 100, 1)
+                ch["avg_time_sec"] = round(ch["total_time"] / ch["attempts"], 2)
+
+            s["chapters"] = list(s["chapters"].values())
+
+        day["subjects"] = list(day["subjects"].values())
+        summaries.append(day)
+
+    return jsonify(summaries)
 
 @app.route("/api/quiz_results/<user_id>", methods=["GET"])
 def get_quiz_results(user_id):
