@@ -290,8 +290,8 @@ def leaderboard():
                     try:
                         meta = json.loads(meta)
                     except Exception:
-                        continue
-                if meta.get("subject", "").lower() == subject_q_lower:
+                        meta = {}
+                if isinstance(meta, dict) and meta.get("subject", "").lower() == subject_q_lower:
                     filtered.append(r)
             results = filtered
 
