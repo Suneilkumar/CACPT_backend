@@ -7,7 +7,6 @@ import os
 import json
 from datetime import datetime, timezone
 import pytz  # pip install pytz
-from clerk import Clerk
 
 # -------------------------------------------------------
 # App setup
