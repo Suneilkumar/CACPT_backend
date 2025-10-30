@@ -7,6 +7,8 @@ import os
 import json
 from datetime import datetime, timezone
 import pytz  # pip install pytz
+import requests
+import time
 
 # -------------------------------------------------------
 # App setup
@@ -20,7 +22,20 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-clerk = Clerk(api_key=os.getenv("CLERK_SECRET_KEY"))  # starts with sk_
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
+
+def get_clerk_user(user_id):
+    """Fetch a user's profile info from Clerk REST API."""
+    url = f"https://api.clerk.dev/v1/users/{user_id}"
+    headers = {
+        "Authorization": f"Bearer {CLERK_SECRET_KEY}",
+    }
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"⚠️ Clerk fetch failed for {user_id}: {response.status_code}")
+        return None
 
 # -------------------------------------------------------
 # Model
@@ -308,13 +323,16 @@ def leaderboard():
         enriched = []
         for entry in top_10:
             try:
-                clerk_user = clerk.users.get_user(entry["userId"])
-                entry["fullName"] = (
-                    f"{clerk_user.first_name or ''} {clerk_user.last_name or ''}".strip()
-                    or entry["email"]
-                )
-                # Bust cache on image so new avatars appear quickly
-                entry["imageUrl"] = f"{clerk_user.image_url}?t={int(time.time())}"
+                clerk_user = get_clerk_user(entry["userId"])
+                if clerk_user:
+                    entry["fullName"] = (
+                        f"{clerk_user.get('first_name', '')} {clerk_user.get('last_name', '')}".strip()
+                        or entry["email"]
+                    )
+                    entry["imageUrl"] = f"{clerk_user.get('image_url')}?t={int(time.time())}"
+                else:
+                    entry["fullName"] = entry["email"]
+                    entry["imageUrl"] = f"https://api.dicebear.com/7.x/identicon/svg?seed={entry['email']}"
             except Exception as e:
                 print(f"⚠️ Clerk fetch failed for {entry['userId']}: {e}")
                 entry["fullName"] = entry["email"]
