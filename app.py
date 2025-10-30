@@ -359,8 +359,16 @@ def quiz_summary():
             continue
 
         key = f"{r.user_id}_{date}"
-        subj = (r.meta or {}).get("subject", "Unknown Subject")
-        chap = (r.meta or {}).get("chapter", "Unknown Chapter")
+        meta = r.meta
+        if isinstance(meta, str):
+        	try:
+            	meta = json.loads(meta)
+        	except Exception:
+            	meta = {}
+        
+        subj = (meta or {}).get("subject", "Unknown Subject")
+    	chap = (meta or {}).get("chapter", "Unknown Chapter")
+    	
         time_taken = r.time_taken or 0.0
 
         day = summary_map[key]
