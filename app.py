@@ -374,8 +374,9 @@ def quiz_summary():
         day["user_id"] = r.user_id
         day["email"] = r.email
         day["date"] = date
-        current_time = time or "00:00:00"
-        last_time = day.get("last_attempt_time", "00:00:00")
+        current_time = str(time or "00:00:00")
+        last_time = str(day.get("last_attempt_time") or "00:00:00")
+
         day["last_attempt_time"] = max(current_time, last_time)
         day["total_attempts"] += 1
         day["total_questions"] += 1
