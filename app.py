@@ -282,11 +282,18 @@ def leaderboard():
 
         # Filter by subject (inside JSON field)
         if subject_q:
-            query = query.filter(
-                func.lower(QuizResult.meta["subject"].astext) == subject_q.lower()
-            )
-
-        results = query.all()
+            subject_q_lower = subject_q.lower()
+            filtered = []
+            for r in results:
+                meta = r.meta
+                if isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except Exception:
+                        continue
+                if meta.get("subject", "").lower() == subject_q_lower:
+                    filtered.append(r)
+            results = filtered
 
         # Aggregate stats
         stats = defaultdict(lambda: {"attempts": 0, "correct": 0})
@@ -305,7 +312,7 @@ def leaderboard():
             total = s["attempts"]
             correct = s["correct"]
             accuracy = (correct / total * 100) if total > 0 else 0
-            if total < 3 or accuracy < 40:
+            if total < 1 or accuracy < 40:
                 continue
 
             leaderboard.append({
