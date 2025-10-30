@@ -7,6 +7,7 @@ import os
 import json
 from datetime import datetime, timezone
 import pytz  # pip install pytz
+from clerk import Clerk
 
 # -------------------------------------------------------
 # App setup
@@ -19,6 +20,8 @@ app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(BASE_DIR, 'que
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+
+clerk = Clerk(api_key=os.getenv("CLERK_SECRET_KEY"))  # starts with sk_
 
 # -------------------------------------------------------
 # Model
@@ -258,12 +261,9 @@ def leaderboard():
     Returns top 10 users ranked by accuracy (% correct answers),
     optionally filtered by subject.
     Filters: min 3 attempts, min 40% accuracy.
-    Example: /api/leaderboard?subject=Accounting
     """
     try:
         subject_q = request.args.get("subject", type=str)
-
-        # Base query
         query = QuizResult.query
 
         # Filter by subject (inside JSON field)
@@ -274,7 +274,7 @@ def leaderboard():
 
         results = query.all()
 
-        # Aggregate user stats
+        # Aggregate stats
         stats = defaultdict(lambda: {"attempts": 0, "correct": 0})
         emails = {}
 
@@ -291,8 +291,6 @@ def leaderboard():
             total = s["attempts"]
             correct = s["correct"]
             accuracy = (correct / total * 100) if total > 0 else 0
-
-            # Apply filters: min 3 attempts and 40% accuracy
             if total < 3 or accuracy < 40:
                 continue
 
@@ -305,22 +303,41 @@ def leaderboard():
 
         # Sort and limit
         leaderboard.sort(key=lambda x: x["avgAccuracy"], reverse=True)
-        top_10 = leaderboard[:10]
+        top_10 = leaderboard[:50]
 
-        # Response
+        # Enrich with Clerk data
+        enriched = []
+        for entry in top_10:
+            try:
+                clerk_user = clerk.users.get_user(entry["userId"])
+                entry["fullName"] = (
+                    f"{clerk_user.first_name or ''} {clerk_user.last_name or ''}".strip()
+                    or entry["email"]
+                )
+                # Bust cache on image so new avatars appear quickly
+                entry["imageUrl"] = f"{clerk_user.image_url}?t={int(time.time())}"
+            except Exception as e:
+                print(f"⚠️ Clerk fetch failed for {entry['userId']}: {e}")
+                entry["fullName"] = entry["email"]
+                entry["imageUrl"] = f"https://api.dicebear.com/7.x/identicon/svg?seed={entry['email']}"
+            enriched.append(entry)
+
         meta_info = (
-            f"Top 10 users for subject '{subject_q}'" if subject_q else "Top 10 users overall"
+            f"Top 10 users for subject '{subject_q}'"
+            if subject_q else "Top 10 users overall"
         )
+
         return jsonify({
             "meta": meta_info,
             "subject": subject_q,
-            "leaderboard": top_10,
-            "count": len(leaderboard)
+            "leaderboard": enriched,
+            "count": len(enriched)
         })
 
     except Exception as e:
         print("❌ Leaderboard generation error:", e)
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/quiz_summary", methods=["GET"])
 def quiz_summary():
