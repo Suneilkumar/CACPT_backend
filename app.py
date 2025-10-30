@@ -361,13 +361,12 @@ def quiz_summary():
         key = f"{r.user_id}_{date}"
         meta = r.meta
         if isinstance(meta, str):
-        	try:
-            	meta = json.loads(meta)
-        	except Exception:
-            	meta = {}
-        
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
         subj = (meta or {}).get("subject", "Unknown Subject")
-    	chap = (meta or {}).get("chapter", "Unknown Chapter")
+        chap = (meta or {}).get("chapter", "Unknown Chapter")
     	
         time_taken = r.time_taken or 0.0
 
