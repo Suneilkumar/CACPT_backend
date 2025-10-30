@@ -274,19 +274,24 @@ def leaderboard():
     """
     Returns top 10 users ranked by accuracy (% correct answers),
     optionally filtered by subject.
-    Filters: min 3 attempts, min 40% accuracy.
+    Compatible with SQLite (filters in Python).
     """
+    from collections import defaultdict
+    import json, time
+
     try:
         subject_q = request.args.get("subject", type=str)
-        query = QuizResult.query
+        
+        # Always fetch all results first
+        results = QuizResult.query.all()
 
-        # Safe Python-side filtering for SQLite
+        # Optional subject filter (Python-side for SQLite)
         if subject_q:
             subject_q_lower = subject_q.lower()
             filtered = []
             for r in results:
                 meta = r.meta
-                # Handle None or stringified JSON safely
+                # handle None or stringified JSON safely
                 if isinstance(meta, str):
                     try:
                         meta = json.loads(meta)
@@ -297,7 +302,6 @@ def leaderboard():
                 if isinstance(meta, dict) and meta.get("subject", "").lower() == subject_q_lower:
                     filtered.append(r)
             results = filtered
-
 
         # Aggregate stats
         stats = defaultdict(lambda: {"attempts": 0, "correct": 0})
@@ -310,7 +314,6 @@ def leaderboard():
                 stats[uid]["correct"] += 1
             emails[uid] = r.email or "unknown@example.com"
 
-        # Build leaderboard list
         leaderboard = []
         for uid, s in stats.items():
             total = s["attempts"]
@@ -318,7 +321,6 @@ def leaderboard():
             accuracy = (correct / total * 100) if total > 0 else 0
             if total < 1 or accuracy < 40:
                 continue
-
             leaderboard.append({
                 "userId": uid,
                 "email": emails.get(uid, "unknown@example.com"),
@@ -351,8 +353,8 @@ def leaderboard():
             enriched.append(entry)
 
         meta_info = (
-            f"Top 10 users for subject '{subject_q}'"
-            if subject_q else "Top 10 users overall"
+            f"Top users for subject '{subject_q}'"
+            if subject_q else "Top users overall"
         )
 
         return jsonify({
@@ -365,6 +367,7 @@ def leaderboard():
     except Exception as e:
         print("❌ Leaderboard generation error:", e)
         return jsonify({"error": str(e)}), 500
+
 
 
 @app.route("/api/quiz_summary", methods=["GET"])
