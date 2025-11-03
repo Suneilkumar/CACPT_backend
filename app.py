@@ -674,7 +674,7 @@ def generate_notes():
         "questions": questions,
         "summary": summary
     })
-    
+
 @app.route("/api/get_notes", methods=["GET"])
 def get_notes():
     subject = request.args.get("subject")
@@ -689,6 +689,11 @@ def get_notes():
         return jsonify({"message": "No notes found for this topic"}), 404
 
     return jsonify(note.serialize())
+
+@app.route("/api/all_notes", methods=["GET"])
+def get_all_notes():
+    notes = TeachingNote.query.order_by(TeachingNote.created_at.desc()).all()
+    return jsonify([n.serialize() for n in notes])
 
 # -------------------------------------------------------
 # Initialize DB
