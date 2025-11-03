@@ -9,8 +9,12 @@ from datetime import datetime, timezone
 import pytz  # pip install pytz
 import requests
 import time
+from dotenv import load_dotenv
 from openai import OpenAI
 import re
+
+load_dotenv()  # reads .env and loads variables into the environment
+
 
 # -------------------------------------------------------
 # App setup
@@ -116,6 +120,33 @@ class QuizResult(db.Model):
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "meta": self.meta,
         }
+
+class TeachingNote(db.Model):
+    __tablename__ = "teaching_notes"
+    id = db.Column(db.Integer, primary_key=True)
+    subject = db.Column(db.String(150), nullable=False)
+    topic = db.Column(db.String(200))
+    title = db.Column(db.String(250))
+    reading_time = db.Column(db.String(50))
+    notes = db.Column(db.Text)
+    summary = db.Column(db.Text)
+    questions = db.Column(db.JSON)  # stores full TF quiz data (answer + explanation)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def serialize(self):
+        return {
+            "id": self.id,
+            "subject": self.subject,
+            "topic": self.topic,
+            "title": self.title,
+            "reading_time": self.reading_time,
+            "notes": self.notes,
+            "summary": self.summary,
+            "questions": self.questions or [],
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 # -------------------------------------------------------
 # Routes
@@ -533,6 +564,12 @@ def generate_notes():
 
     print(f"📩 Request received → Subject: {subject}, Topic: {topic}")
 
+    # 🧠 ADD THIS CACHING CHECK RIGHT HERE
+    existing = TeachingNote.query.filter_by(subject=subject, topic=topic).first()
+    if existing:
+        print("⚡ Cached note found — skipping OpenAI call")
+        return jsonify(existing.serialize())
+
     prompt = f"""
     Generate explanatory student notes for CA Foundation – {subject}.
     Topic: {topic}.
@@ -603,10 +640,24 @@ def generate_notes():
             questions.append(current_q)
 
     print(f"🧠 Parsed {len(questions)} True/False questions")
-    print("🧠 Parsed data:")
-    print("Title:", title)
-    print("Reading Time:", reading_time)
-    print("Questions found:", len(questions))
+    
+    # ✅ Save to DB
+    try:
+        note = TeachingNote(
+            subject=subject,
+            topic=topic,
+            title=title,
+            reading_time=reading_time,
+            notes=notes,
+            summary=summary,
+            questions=questions,
+        )
+        db.session.add(note)
+        db.session.commit()
+        print(f"💾 Saved TeachingNote ID: {note.id}")
+    except Exception as e:
+        db.session.rollback()
+        print(f"❌ DB Error: {e}")
 
     for i, q in enumerate(questions, 1):
         print(f"{i}. {q['statement']} → {q['answer']} ({q['explanation']})")
@@ -614,6 +665,9 @@ def generate_notes():
     print("\n✅ Data parsing complete. Returning JSON response.\n")
 
     return jsonify({
+        "id": note.id if 'note' in locals() else None,
+        "subject": subject,
+        "topic": topic,
         "title": title,
         "reading_time": reading_time,
         "notes": notes,
