@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import pytz  # pip install pytz
 import requests
 import time
+from openai import OpenAI
 
 # -------------------------------------------------------
 # App setup
@@ -23,6 +24,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
+openai_apikey = os.getenv("OPENAI_APIKEY")
+openai_client = OpenAI(api_key=openai_apikey)
 
 def get_clerk_user(user_id):
     """Fetch a user's profile info from Clerk REST API."""
@@ -318,7 +321,7 @@ def leaderboard():
             total = s["attempts"]
             correct = s["correct"]
             accuracy = (correct / total * 100) if total > 0 else 0
-            if total < 1 or accuracy < 40:
+            if total < 3 or accuracy < 40:
                 continue
             leaderboard.append({
                 "userId": uid,
@@ -523,7 +526,105 @@ def get_all_quiz_results():
 
     return jsonify([r.serialize() for r in results])
 
+@app.route("/api/generate_notes", methods=["POST"])
+def generate_notes():
+    data = request.get_json()
+    subject = data.get("subject", "Negotiable Instruments Act")
+    topic = data.get("topic", "Promissory Note")
 
+    print(f"📩 Request received → Subject: {subject}, Topic: {topic}")
+
+    prompt = f"""
+    Generate explanatory student notes for CA Foundation – {subject}.
+    Topic: {topic}.
+
+    Include the following sections:
+    ### Title:
+    ### Reading Time: (estimate in minutes)
+    ### Notes:
+    ### True or False Questions:
+    Create exactly 6 True/False questions with:
+    - The statement
+    - Correct answer (True or False)
+    - A one-line explanation
+    ### Summary:
+    """
+
+    print("⏳ Sending prompt to OpenAI API...")
+
+    # ✅ New API call syntax
+    response = openai_client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    content = response.choices[0].message.content
+
+    print("\n✅ Raw response from API:\n")
+    print(content)
+    print("\n---------------------------------\n")
+
+    def extract(header):
+        match = re.search(rf"### {header}:(.*?)(?=###|\Z)", content, re.S)
+        return match.group(1).strip() if match else ""
+
+    title = extract("Title")
+    reading_time = extract("Reading Time")
+    notes = extract("Notes")
+    summary = extract("Summary")
+
+    # Extract True/False questions
+    # Extract True/False questions
+    tf_section = extract("True or False Questions")
+    if not tf_section:
+        print("⚠️ No TF section found in response")
+        questions = []
+    else:
+        questions = []
+        current_q = {}
+        lines = [ln.strip() for ln in tf_section.splitlines() if ln.strip()]
+        for line in lines:
+            try:
+                if re.match(r"^\d+\.", line):
+                    if current_q:
+                        questions.append(current_q)
+                    current_q = {"statement": re.sub(r"^\d+\.\s*", "", line).strip()}
+                elif re.match(r"^-?\s*(True|False)\b", line, re.I):
+                    current_q["answer"] = "true" in line.lower()
+                elif line.startswith("-"):
+                    current_q["explanation"] = re.sub(r"^-\s*", "", line).strip()
+                else:
+                    # unrecognised line: append to current explanation
+                    if "explanation" in current_q:
+                        current_q["explanation"] += " " + line
+            except Exception as e:
+                print(f"⚠️ Skipped line (parse issue): {line} -> {e}")
+
+        if current_q:
+            questions.append(current_q)
+
+    print(f"🧠 Parsed {len(questions)} True/False questions")
+
+
+
+
+    print("🧠 Parsed data:")
+    print("Title:", title)
+    print("Reading Time:", reading_time)
+    print("Questions found:", len(questions))
+
+    for i, q in enumerate(questions, 1):
+        print(f"{i}. {q['statement']} → {q['answer']} ({q['explanation']})")
+
+    print("\n✅ Data parsing complete. Returning JSON response.\n")
+
+    return jsonify({
+        "title": title,
+        "reading_time": reading_time,
+        "notes": notes,
+        "questions": questions,
+        "summary": summary
+    })
 
 # -------------------------------------------------------
 # Initialize DB
@@ -532,3 +633,5 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(host="0.0.0.0", port=5000)
+
+
