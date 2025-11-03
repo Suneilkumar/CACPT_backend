@@ -10,6 +10,7 @@ import pytz  # pip install pytz
 import requests
 import time
 from openai import OpenAI
+import re
 
 # -------------------------------------------------------
 # App setup
@@ -369,8 +370,6 @@ def leaderboard():
         print("❌ Leaderboard generation error:", e)
         return jsonify({"error": str(e)}), 500
 
-
-
 @app.route("/api/quiz_summary", methods=["GET"])
 def quiz_summary():
     """
@@ -604,10 +603,6 @@ def generate_notes():
             questions.append(current_q)
 
     print(f"🧠 Parsed {len(questions)} True/False questions")
-
-
-
-
     print("🧠 Parsed data:")
     print("Title:", title)
     print("Reading Time:", reading_time)
