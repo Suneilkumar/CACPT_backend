@@ -695,6 +695,27 @@ def get_all_notes():
     notes = TeachingNote.query.order_by(TeachingNote.created_at.desc()).all()
     return jsonify([n.serialize() for n in notes])
 
+@app.route("/api/get_topics", methods=["GET"])
+def get_topics():
+    subject = request.args.get("subject")
+    chapter = request.args.get("chapter")
+
+    if not subject or not chapter:
+        return jsonify({"error": "subject and chapter are required"}), 400
+
+    rows = (
+        TeachingNote.query
+        .filter_by(subject=subject, chapter=chapter)
+        .with_entities(TeachingNote.topic)
+        .distinct()
+        .all()
+    )
+
+    topics = [r[0] for r in rows]
+
+    return jsonify({"topics": topics})
+
+
 # -------------------------------------------------------
 # Initialize DB
 # -------------------------------------------------------
@@ -702,5 +723,3 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
     app.run(host="0.0.0.0", port=5000)
-
-
