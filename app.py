@@ -677,13 +677,12 @@ def generate_notes():
 
 @app.route("/api/get_notes", methods=["GET"])
 def get_notes():
-    subject = request.args.get("subject")
     topic = request.args.get("topic")
 
-    if not subject or not topic:
+    if not topic:
         return jsonify({"error": "subject and topic are required"}), 400
 
-    note = TeachingNote.query.filter_by(subject=subject, topic=topic).first()
+    note = TeachingNote.query.filter_by(topic=topic).first()
 
     if not note:
         return jsonify({"message": "No notes found for this topic"}), 404
