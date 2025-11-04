@@ -698,21 +698,19 @@ def get_all_notes():
 @app.route("/api/get_topics", methods=["GET"])
 def get_topics():
     subject = request.args.get("subject")
-    chapter = request.args.get("chapter")
 
-    if not subject or not chapter:
-        return jsonify({"error": "subject and chapter are required"}), 400
+    if not subject:
+        return jsonify({"error": "subject required"}), 400
 
     rows = (
         TeachingNote.query
-        .filter_by(subject=subject, chapter=chapter)
+        .filter_by(subject=subject)
         .with_entities(TeachingNote.topic)
         .distinct()
         .all()
     )
 
     topics = [r[0] for r in rows]
-
     return jsonify({"topics": topics})
 
 
